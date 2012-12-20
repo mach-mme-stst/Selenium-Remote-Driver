@@ -2,7 +2,7 @@ package Selenium::Remote::Driver;
 
 use strict;
 use warnings;
-
+use Data::Dumper;
 use Carp;
 our @CARP_NOT;
 
@@ -655,6 +655,7 @@ sub set_implicit_wait_timeout {
     my ($self, $ms) = @_;
     my $res  = {'command' => 'setImplicitWaitTimeout'};
     my $params  = {'ms' => $ms};
+    $self->{'ImplicitWaitTimeout'} = $ms;
     return $self->_execute_command($res, $params);
 }
 
@@ -1869,6 +1870,85 @@ sub upload_file {
     return $self->_execute_command($res, $params);
 }
 
+=head2 is_element_present
+
+ Description:
+    This method checks if an element exists or not.
+    It will set implicit wait to a smaller value and reset it afterwards as for ajax applications
+    you tend to have a bigger implicit wait but want to check for non existent elements.
+    This will slow down your test.
+
+ Input: 2
+    Required:
+        Element selector
+        timeout in ms
+
+ Output:
+    BOOLEAN
+
+ Usage:
+    $driver->is_element_present("//input[\@name='q']", 10);
+
+=cut
+
+sub is_element_present {
+    my ( $self, $query, $method, $timeout ) = @_;
+    if ( not defined $query ) {
+        return 'Search string to find element not provided.';
+    }
+    my $using = ( defined $method ) ? FINDERS->{$method} : $self->{default_finder};
+    if (defined $using) {
+        $timeout = ( defined $timeout ) ? $timeout : 500;
+        $self->set_implicit_wait_timeout($timeout);
+        my $res = { 'command' => 'findElement' };
+        my $params = { 'using' => $using, 'value' => $query };
+        my $ret_data = eval { $self->_execute_command( $res, $params ); };
+        if($@ =~ /(An element could not be located on the page using the given search parameters)/) {
+           return 0;
+        }
+        my $global_timeout = ( defined $self->{'ImplicitWaitTimeout'} ) ? $self->{'ImplicitWaitTimeout'} : 0;
+        $self->set_implicit_wait_timeout($global_timeout);
+        return 1;
+    }
+    else {
+        croak "Bad method, expected - class, class_name, css, id, link,
+                link_text, partial_link_text, name, tag_name, xpath";
+    }
+}
+
+sub sizzle_find_element {
+    my ( $self, $query ) = @_;
+    if ( not defined $query ) {
+        croak 'Search string to sizzle find element not provided.';
+    }
+    my $script = q{
+        var arg1 = arguments[0];
+        var callback = arguments[arguments.length-1];
+        callback(Sizzle(arguments[0]));
+    };
+    my $callback = q{return arguments[0];};
+    my $ret_data = $self->execute_async_script($script,$query,$callback);
+    return new Selenium::Remote::WebElement($ret_data->[0]->{ELEMENT}, $self);
+}
+
+sub sizzle_find_elements {
+    my ( $self, $query ) = @_;
+    if ( not defined $query ) {
+        croak 'Search string to sizzle find element not provided.';
+    }
+    my $script = q{
+        var arg1 = arguments[0];
+        var callback = arguments[arguments.length-1];
+        callback(Sizzle(arguments[0]));
+    };
+    my $callback = q{return arguments[0];};
+    my $ret_data = $self->execute_async_script($script,$query,$callback);
+    my @elem_obj_arr = ();
+    foreach (@$ret_data) {
+      push(@elem_obj_arr, new Selenium::Remote::WebElement($_->{ELEMENT}, $self));
+    }
+    return @elem_obj_arr;
+}
 1;
 
 __END__
